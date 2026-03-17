@@ -1,4 +1,6 @@
 package org.example.unicare_backend.controllers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import jakarta.validation.Valid;
 import org.example.unicare_backend.models.User;
@@ -23,10 +25,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Random;
 
-@CrossOrigin(origins = "http://localhost:5173", maxAge = 3600)
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
     @Autowired
     AuthenticationManager authenticationManager;
 
@@ -74,20 +76,33 @@ public class AuthController {
                     .body(new MessageResponse("Error: Email is already in use!"));
         }
 
-        // Create new user's account
-        User user = new User(signUpRequest.getEmail(),
-                encoder.encode(signUpRequest.getPassword()),
-                signUpRequest.getDisplayName());
+        try {
+            // Create new user's account
+            User user = new User(signUpRequest.getEmail(),
+                    encoder.encode(signUpRequest.getPassword()),
+                    signUpRequest.getDisplayName());
 
-        String otp = generateOtp();
-        user.setVerificationCode(otp);
-        user.setVerificationExpiry(Instant.now().plus(5, ChronoUnit.MINUTES));
-        user.setEnabled(false);
+            String otp = generateOtp();
+            user.setVerificationCode(otp);
+            user.setVerificationExpiry(Instant.now().plus(5, ChronoUnit.MINUTES));
+            user.setEnabled(false);
 
-        userRepository.save(user);
-        emailService.sendOtpEmail(user.getEmail(), otp);
+            userRepository.save(user);
+            logger.info("User registered successfully, sending OTP to {}", user.getEmail());
+            
+            try {
+                emailService.sendOtpEmail(user.getEmail(), otp);
+            } catch (Exception e) {
+                logger.error("Failed to send OTP email to {}: {}", user.getEmail(), e.getMessage());
+                // We still registered the user, maybe return a different message?
+                return ResponseEntity.ok(new MessageResponse("Chào mừng bạn! Tuy nhiên, việc gửi mã xác thực gặp sự cố. Vui lòng bấm 'Gửi lại mã'."));
+            }
 
-        return ResponseEntity.ok(new MessageResponse("Chào mừng bạn! Vui lòng kiểm tra email để lấy mã xác thực."));
+            return ResponseEntity.ok(new MessageResponse("Chào mừng bạn! Vui lòng kiểm tra email để lấy mã xác thực."));
+        } catch (Exception e) {
+            logger.error("Registration error: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(new MessageResponse("Lỗi hệ thống trong quá trình đăng ký: " + e.getMessage()));
+        }
     }
 
     @PostMapping("/verify-otp")
